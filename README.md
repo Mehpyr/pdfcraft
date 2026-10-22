@@ -287,6 +287,7 @@ Every engine feature is reachable without the GUI, through one table of JSON-Sch
 
   ```sh
   pdfcraft-cli tools                                        # every tool and its JSON Schema
+  pdfcraft-cli tools --category page --query rotate         # one line per matching tool; --name page_rotate for one in full
   pdfcraft-cli run text_find doc=1 query=invoice            # key=value; values parse as JSON
   pdfcraft-cli run --script review.json                     # e.g. comment_add {"type": "highlight", "find": "total due"}
   pdfcraft-cli run --script steps.json --root ./work        # several steps in one session

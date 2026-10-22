@@ -126,7 +126,9 @@ software on the computer.
 | `render_preview` | `doc?`, `page?` (1-based, default 1), `max_side?` (1–4096, default 1024) |
 
 All existing task tools remain available. Compact mode lists these five tools alongside its
-existing core set and `tool_search` / `tool_call`. There are no legacy-name aliases. The full
+existing core set and `tool_search` / `tool_call`. There are no legacy-name aliases. Outside a
+session, `pdfcraft-cli tools --query WORDS`, `--category PREFIX` and `--name TOOL` print what
+`tool_search` returns: one line per matching tool, or one tool with its input schema. The full
 [automation guide](../crates/automation/README.md) describes the tools, resources, coordinate
 system, root confinement, and errors.
 

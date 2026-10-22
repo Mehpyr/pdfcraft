@@ -72,6 +72,8 @@ pdfcraft-cli batch <files or dirs...> --steps convert,ocr,optimize --out-dir DIR
                       [--recursive] [--root DIR] [--stop-on-error]
                       [--ppi 150] [--quality 60] [--dpi 300] [--language en] [--ocr-all-pages]
 pdfcraft-cli tools                                       automation tools and their JSON Schemas
+pdfcraft-cli tools  [--query WORDS] [--category PREFIX] [--name TOOL]
+                      search them: one line per tool, or --name for one with its schema (as MCP tool_search)
 pdfcraft-cli run    <tool> [key=value …] [--root DIR] [--out image.png]
 pdfcraft-cli run    --script steps.json [--root DIR] [--report]
                       [{\"tool\": \"doc_open\", \"args\": {…}}, …]; --report prints one JSON document for the run
@@ -103,7 +105,7 @@ fn main() -> ExitCode {
         Some("check") => check(&args[1..]),
         Some("check-one") => check_one(&args[1..]),
         Some("audit") => audit(&args[1..]),
-        Some("tools") => tools(),
+        Some("tools") => tools(&args[1..]),
         Some("run") => run(&args[1..]),
         Some("batch") => batch::run(&args[1..]),
         Some("ui") => ui(&args[1..]),
@@ -266,6 +268,11 @@ const CHECK_OPTIONS: &[OptionSpec] = &[
     OptionSpec { name: "--timeout", takes_value: true },
     OptionSpec { name: "--dpi", takes_value: true },
     OptionSpec { name: "--json", takes_value: true },
+];
+const TOOLS_OPTIONS: &[OptionSpec] = &[
+    OptionSpec { name: "--query", takes_value: true },
+    OptionSpec { name: "--category", takes_value: true },
+    OptionSpec { name: "--name", takes_value: true },
 ];
 const RUN_OPTIONS: &[OptionSpec] = &[
     OptionSpec { name: "--root", takes_value: true },
@@ -873,13 +880,44 @@ fn automation(args: &[String]) -> Result<pdfcraft_automation::Automation, String
     }
 }
 
-fn tools() -> Result<(), CliError> {
+fn tools(args: &[String]) -> Result<(), CliError> {
+    validate_options("tools", args, TOOLS_OPTIONS)?;
+    if let Some(found) = tool_search(args)? {
+        return stdout_line(format_args!("{}", serde_json::to_string_pretty(&found).unwrap_or_default()));
+    }
     let list: Vec<serde_json::Value> = pdfcraft_automation::tools()
         .iter()
         .map(|t| serde_json::json!({ "name": t.name, "description": t.description, "read_only": t.read_only, "command": t.command, "input_schema": t.input_schema }))
         .collect();
     stdout_line(format_args!("{}", serde_json::to_string_pretty(&list).unwrap_or_default()))?;
     Ok(())
+}
+
+/// `tools --query WORDS --category PREFIX --name TOOL`: what the compact MCP server's
+/// `tool_search` answers for them (a list without schemas, or one tool in full), or `None` when
+/// none of them is given.
+fn tool_search(args: &[String]) -> Result<Option<serde_json::Value>, CliError> {
+    let mut search = serde_json::Map::new();
+    for (option, key) in [("--query", "query"), ("--category", "category"), ("--name", "name")] {
+        if args.iter().any(|a| a == option) {
+            // No word, category or tool name starts with `--`: that is the next option.
+            let value = flag(args, option).filter(|v| !v.starts_with("--")).ok_or_else(|| format!("tools: {option} needs a value"))?;
+            search.insert(key.into(), value.into());
+        }
+    }
+    if let Some(extra) = positional(args).first() {
+        return Err(format!("tools: unexpected argument {extra:?}; search with --query WORDS, --category PREFIX or --name TOOL").into());
+    }
+    if search.is_empty() {
+        return Ok(None);
+    }
+    let found = pdfcraft_automation::search_tools(&serde_json::Value::Object(search)).map_err(|e| match e {
+        pdfcraft_automation::ToolError::UnknownTool(name) => {
+            format!("tools: unknown tool {name:?}; find its name with --query WORDS or --category PREFIX")
+        }
+        other => format!("tools: {other}"),
+    })?;
+    Ok(Some(found))
 }
 
 /// Print a tool's result: JSON as JSON; images go to `--out` (or are summarised). The image is

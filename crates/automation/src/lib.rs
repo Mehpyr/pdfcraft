@@ -4,7 +4,8 @@
 //! - [`Automation`] is a tool set over an engine [`Session`]: open, inspect, render, extract and
 //!   find text, edit pages and metadata, undo/redo, save, combine, extract and split. Every tool
 //!   has a JSON Schema ([`tools`]) and takes and returns JSON, so the same table drives the MCP
-//!   server ([`mcp`]), `pdfcraft-cli run` and (later) the UI control channel.
+//!   server ([`mcp`]), `pdfcraft-cli run` and (later) the UI control channel. [`search_tools`]
+//!   finds tools in it without reading every schema (MCP `tool_search`, `pdfcraft-cli tools --query`).
 //! - Pages are **1-based** in every tool, as people number them. Rectangles are in PDF points
 //!   with the origin at the top-left of the displayed page.
 //! - An optional root directory confines every path a tool reads or writes. Separately,
@@ -31,6 +32,7 @@ mod reading;
 mod redact;
 mod signing;
 mod text_cache;
+mod tool_search;
 mod tools;
 
 use std::collections::{HashMap, HashSet};
@@ -43,6 +45,7 @@ use pdfcraft_render::{PageRenderer, PageText, RenderConfig, RenderRequest, Reque
 use serde_json::{Value, json};
 
 pub use pdfcraft_render::Pixels;
+pub use tool_search::search_tools;
 pub use tools::{ToolDef, tools};
 
 /// One piece of a tool's result.

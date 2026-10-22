@@ -16,6 +16,7 @@ use std::io::{BufRead, Write};
 use base64::Engine as _;
 use serde_json::{Value, json};
 
+use crate::tool_search::{TOOL_SEARCH, check_keys, search_tools};
 use crate::{Automation, Content, ToolError};
 
 /// Protocol revisions we speak, newest first.
@@ -56,8 +57,7 @@ pub const COMPACT_CORE_TOOLS: &[&str] = &[
     "render_preview",
 ];
 
-/// Meta tools that exist only in compact mode.
-const TOOL_SEARCH: &str = "tool_search";
+/// Compact mode's other meta tool, besides `tool_search`.
 const TOOL_CALL: &str = "tool_call";
 
 pub struct McpServer {
@@ -144,7 +144,10 @@ impl McpServer {
                     check_keys(name, &args, &["query", "category", "name"]).map_err(|e| (INVALID_PARAMS, e))?;
                     return Ok(match search_tools(&args) {
                         Ok(found) => call_result(vec![Content::Json(found)]),
-                        Err(message) => tool_error(&message),
+                        Err(ToolError::UnknownTool(t)) => {
+                            tool_error(&format!("unknown tool {t:?}; call {TOOL_SEARCH} without name to list the tools"))
+                        }
+                        Err(e) => tool_error(&e.to_string()),
                     });
                 }
                 if self.compact && name == TOOL_CALL {
@@ -236,72 +239,6 @@ fn meta_tools() -> [Value; 2] {
             "annotations": { "title": "Run any PdfCraft tool", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
         }),
     ]
-}
-
-/// The category of a tool: its name up to the first underscore (`page_rotate` → `page`).
-fn category_of(name: &str) -> &str {
-    name.split('_').next().unwrap_or(name)
-}
-
-/// A description up to and including its first sentence.
-fn first_sentence(text: &str) -> &str {
-    // ASCII lowercasing keeps byte offsets, so positions found in `lower` are valid in `text`.
-    let lower = text.to_ascii_lowercase();
-    let mut from = 0;
-    while let Some(i) = lower.get(from..).and_then(|rest| rest.find(". ")).map(|i| i + from) {
-        // "e.g. " and "i.e. " are abbreviations, not the end of the sentence.
-        if !lower.get(..i).is_some_and(|before| before.ends_with("e.g") || before.ends_with("i.e")) {
-            return text.get(..=i).unwrap_or(text);
-        }
-        from = i + 2;
-    }
-    text
-}
-
-/// Reject keys other than `allowed`, as the tool table does for a tool's own arguments.
-fn check_keys(tool: &str, args: &Value, allowed: &[&str]) -> Result<(), String> {
-    match args.as_object().and_then(|o| o.keys().find(|k| !allowed.contains(&k.as_str()))) {
-        Some(k) => Err(format!("{tool}: unknown argument {k:?} (expected: {})", allowed.join(", "))),
-        None => Ok(()),
-    }
-}
-
-/// `tool_search`: filter the tool table by query and category, or describe one tool in full.
-fn search_tools(args: &Value) -> Result<Value, String> {
-    if !(args.is_object() || args.is_null()) {
-        return Err(format!("{TOOL_SEARCH} takes an object with optional query, category and name"));
-    }
-    check_keys(TOOL_SEARCH, args, &["query", "category", "name"])?;
-    let text = |key: &str| match args.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(s)) => Ok(Some(s.trim())),
-        Some(_) => Err(format!("{TOOL_SEARCH}: {key} must be a string")),
-    };
-    let (query, category, name) = (text("query")?, text("category")?, text("name")?);
-    let all = crate::tools();
-    if let Some(name) = name {
-        let t =
-            all.iter().find(|t| t.name == name).ok_or_else(|| format!("unknown tool {name:?}; call {TOOL_SEARCH} without name to list the tools"))?;
-        return Ok(json!({ "tool": {
-            "name": t.name, "title": t.title, "category": category_of(t.name), "description": t.description,
-            "read_only": t.read_only, "destructive": t.destructive, "input_schema": t.input_schema,
-        } }));
-    }
-    let category = category.map(|c| c.trim_end_matches('_').to_lowercase()).filter(|c| !c.is_empty());
-    let words: Vec<String> = query.map(|q| q.to_lowercase().split_whitespace().map(str::to_owned).collect()).unwrap_or_default();
-    let mut categories: Vec<&str> = all.iter().map(|t| category_of(t.name)).collect();
-    categories.sort_unstable();
-    categories.dedup();
-    let found: Vec<Value> = all
-        .iter()
-        .filter(|t| category.as_deref().is_none_or(|c| category_of(t.name) == c))
-        .filter(|t| {
-            let haystack = format!("{} {} {}", t.name, t.title, t.description).to_lowercase();
-            words.iter().all(|w| haystack.contains(w.as_str()))
-        })
-        .map(|t| json!({ "name": t.name, "category": category_of(t.name), "description": first_sentence(t.description), "read_only": t.read_only }))
-        .collect();
-    Ok(json!({ "count": found.len(), "tools": found, "categories": categories }))
 }
 
 /// `tool_call`: the tool name and its arguments from the meta tool's own arguments.
@@ -509,7 +446,7 @@ fn call_result(content: Vec<Content>) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{Resource, first_sentence, parse_uri};
+    use super::{Resource, parse_uri};
 
     #[test]
     fn conventions_panic_is_a_tool_error() {
@@ -518,18 +455,6 @@ mod tests {
         assert!(r["content"][0]["text"].as_str().unwrap().contains("synthetic tool failure"));
         let next = super::guarded_tool(|| Ok(serde_json::json!({"ok":true}))).unwrap();
         assert_eq!(next["ok"], true);
-    }
-
-    #[test]
-    fn first_sentence_skips_abbreviations() {
-        assert_eq!(first_sentence("Rotate pages. Undoable."), "Rotate pages.");
-        assert_eq!(first_sentence("Label pages (i.e. roman numerals). Undoable."), "Label pages (i.e. roman numerals).");
-        assert_eq!(first_sentence("Label pages (I.E. roman numerals, E.G. i, ii). Undoable."), "Label pages (I.E. roman numerals, E.G. i, ii).");
-        assert_eq!(first_sentence("Use a value, e.g. en-US, or none. Then more."), "Use a value, e.g. en-US, or none.");
-        assert_eq!(first_sentence("No full stop here"), "No full stop here");
-        assert_eq!(first_sentence("Only an abbreviation, e.g. this"), "Only an abbreviation, e.g. this");
-        assert_eq!(first_sentence(""), "");
-        assert_eq!(first_sentence("Zażółć gęślą, i.e. jaźń. Dalej."), "Zażółć gęślą, i.e. jaźń.");
     }
 
     #[test]
