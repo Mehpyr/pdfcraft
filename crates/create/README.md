@@ -2,7 +2,7 @@
 
 Layer L4. Create a PDF (Acrobat's Create a PDF tool), execution plan M10.2:
 
-- `blank(width, height, pages)`: an empty document;
+- `blank(width, height, pages)`: an empty document, 3 to 14,400 points a side;
 - `from_images(&[(name, bytes)])`: one page per image, sized from the image's resolution
   (PNG `pHYs`, JPEG JFIF density; 72 dpi when absent). JPEG data is embedded as is
   (`/DCTDecode`, grey, RGB or Adobe-inverted CMYK); PNG is decoded and stored with Flate,
@@ -16,7 +16,8 @@ Layer L4. Create a PDF (Acrobat's Create a PDF tool), execution plan M10.2:
   resolution (1–1200 dpi), without resampling or recompressing image pixels. Use 72 dpi
   for one point per pixel, or `ImageResolution::Embedded` for the same behavior as
   `from_images`. The largest page side is still capped at 14,400 points;
-- `from_text(text, …)`: plain text set in Helvetica, wrapped and paginated. Text Helvetica
+- `from_text(text, …)`: plain text set in Helvetica, wrapped and paginated for the page size
+  it is given (`LETTER` for US Letter; a size `blank` refuses is refused). Text Helvetica
   can't draw is refused, naming the line and the character, never set as `?`.
 - `from_text_escaped(text, …)`: the same for reports PdfCraft generates from documents
   (comment summaries, compare reports): such characters are written as `[U+XXXX]` and the first

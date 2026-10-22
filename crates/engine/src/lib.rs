@@ -4432,7 +4432,13 @@ impl Session {
     /// A new document from plain text (US Letter, 11 pt Helvetica). Text Helvetica can't draw is
     /// refused, naming the line and the character (never set as `?`).
     pub fn create_from_text(&self, title: &str, text: &str) -> Result<Arc<Vec<u8>>, EditError> {
-        self.write_new(&pdfcraft_create::from_text(title, text, pdfcraft_create::LETTER, 11.0)?)
+        self.create_from_text_with_page_size(title, text, pdfcraft_create::LETTER.0, pdfcraft_create::LETTER.1)
+    }
+
+    /// [`Self::create_from_text`] on pages of `width × height` points, wrapped and paginated for
+    /// them. A size [`Self::create_blank`] refuses is refused.
+    pub fn create_from_text_with_page_size(&self, title: &str, text: &str, width: f64, height: f64) -> Result<Arc<Vec<u8>>, EditError> {
+        self.write_new(&pdfcraft_create::from_text(title, text, (width, height), 11.0)?)
     }
 
     /// [`Self::create_from_text`] for a report PdfCraft writes from documents (comment summaries,

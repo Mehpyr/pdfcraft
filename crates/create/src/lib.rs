@@ -20,8 +20,16 @@ pub enum CreateError {
 /// US Letter in points.
 pub const LETTER: (f64, f64) = (612.0, 792.0);
 
+/// The smallest side of a blank or text page.
+const MIN_SIDE: f64 = 3.0;
 /// The largest page side PDF allows (ISO 32000-2 Annex C: 14 400 units).
 const MAX_SIDE: f64 = 14_400.0;
+
+/// Whether `width × height` points is a size for a blank or text page: [`MIN_SIDE`] to
+/// [`MAX_SIDE`] a side.
+fn page_size_ok(width: f64, height: f64) -> bool {
+    width.is_finite() && height.is_finite() && (MIN_SIDE..=MAX_SIDE).contains(&width) && (MIN_SIDE..=MAX_SIDE).contains(&height)
+}
 
 fn add_page(doc: &mut Document, w: f64, h: f64, resources: Dict, content: Option<Vec<u8>>) -> Result<ObjRef, CreateError> {
     // `Document::new_empty` always has a page tree.
@@ -58,10 +66,7 @@ fn set_title(doc: &mut Document, title: &str) {
 
 /// A document of `pages` empty pages of `width × height` points.
 pub fn blank(width: f64, height: f64, pages: usize) -> Result<Document, CreateError> {
-    if !(width.is_finite() && height.is_finite() && (3.0..=MAX_SIDE).contains(&width) && (3.0..=MAX_SIDE).contains(&height))
-        || pages == 0
-        || pages > 10_000
-    {
+    if !page_size_ok(width, height) || pages == 0 || pages > 10_000 {
         return Err(CreateError::Invalid("invalid page size or count".into()));
     }
     let mut doc = Document::new_empty();
@@ -630,7 +635,8 @@ fn turkish_code_page(bytes: &[u8]) -> bool {
 
 /// Plain text set in Helvetica on pages of `page` size with 1-inch margins. Text Helvetica can't
 /// draw (outside Western European) is refused with [`CreateError::Invalid`] naming the line and
-/// the character; text PdfCraft generates goes through [`from_text_escaped`] instead.
+/// the character; text PdfCraft generates goes through [`from_text_escaped`] instead. A page size
+/// [`blank`] refuses is refused too.
 pub fn from_text(title: &str, text: &str, page: (f64, f64), font_size: f64) -> Result<Document, CreateError> {
     // Helvetica in WinAnsiEncoding: text it can't draw is refused with where it is, not set as `?`.
     if let Some((line, c)) = first_undrawable_line(text) {
@@ -672,8 +678,11 @@ pub fn from_text_escaped(title: &str, text: &str, page: (f64, f64), font_size: f
 }
 
 fn set_text(title: &str, text: &str, page: (f64, f64), font_size: f64) -> Result<Document, CreateError> {
-    let size = if font_size.is_finite() && font_size > 0.0 { font_size.clamp(4.0, 72.0) } else { 11.0 };
     let (w, h) = page;
+    if !page_size_ok(w, h) {
+        return Err(CreateError::Invalid(format!("invalid page size: each side must be {MIN_SIDE} to {MAX_SIDE} points")));
+    }
+    let size = if font_size.is_finite() && font_size > 0.0 { font_size.clamp(4.0, 72.0) } else { 11.0 };
     let margin = 72.0;
     let line_h = size * 1.25;
     let width = (w - 2.0 * margin).max(36.0);

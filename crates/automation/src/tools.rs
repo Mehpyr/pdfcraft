@@ -1242,7 +1242,7 @@ pub fn tools() -> Vec<ToolDef> {
         t(
             "doc_create",
             "Create a PDF",
-            "Create a new, unsaved document and return it like doc_open: `blank` (pages, width, height in points; default 1 US Letter page), `images` (paths of PNG, JPEG, TIFF (every page), GIF or BMP files, one page each at the image's resolution) or `text` (a .txt path, or `text` directly; Western European (WinAnsi) characters only, others are refused). Save it with doc_save and a path.",
+            "Create a new, unsaved document and return it like doc_open: `blank` (pages, width, height in points; default 1 US Letter page), `images` (paths of PNG, JPEG, TIFF (every page), GIF or BMP files, one page each at the image's resolution) or `text` (a .txt path, or `text` directly, laid out on pages of width × height points, default US Letter; Western European (WinAnsi) characters only, others are refused). Save it with doc_save and a path.",
         )
         .with(schema(
             json!({
@@ -1252,8 +1252,8 @@ pub fn tools() -> Vec<ToolDef> {
                 "text": { "type": "string" },
                 "path": { "type": "string" },
                 "pages": { "type": "integer", "minimum": 1, "maximum": 10000 },
-                "width": { "type": "number", "minimum": 3 },
-                "height": { "type": "number", "minimum": 3 },
+                "width": { "type": "number", "minimum": 3, "maximum": 14400, "description": "Page width in points, for blank and text (default 612, US Letter; A4 is 595)." },
+                "height": { "type": "number", "minimum": 3, "maximum": 14400, "description": "Page height in points, for blank and text (default 792, US Letter; A4 is 842)." },
                 "name": { "type": "string", "description": "Name for the new document (default derived from the source)." },
             }),
             &["from"],

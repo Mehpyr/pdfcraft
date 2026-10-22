@@ -6849,8 +6849,8 @@ milestone = "M10"
 status = "shipped"
 commands = ["create.file"]
 tools = ["doc_create"]
-evidence = ["crates/create/src/tests.rs::text_is_wrapped_and_paginated", "crates/automation/tests/automation.rs::creating_and_reducing_through_tools"]
-notes = "Helvetica 11 pt on US Letter; form feeds start pages"
+evidence = ["crates/create/src/tests.rs::text_is_wrapped_and_paginated", "crates/automation/tests/automation.rs::creating_and_reducing_through_tools", "crates/create/src/tests.rs::text_is_laid_out_on_the_page_size_given", "crates/automation/tests/automation.rs::creating_from_text_takes_the_page_size"]
+notes = "Helvetica 11 pt; form feeds start pages. doc_create lays the text out on the width × height it is given (3 to 14,400 pt a side, as for blank pages), US Letter by default. Still US Letter only: the app (Create ▸ File, Combine, Create from multiple files) and the .txt files doc_create_multiple and doc_combine convert"
 
 [[feature]]
 id = "create.from-markdown"

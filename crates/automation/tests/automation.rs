@@ -3475,6 +3475,49 @@ fn creating_from_text_refuses_what_the_font_cannot_draw() {
     refused(a.call("page_add_text", &json!({ "doc": doc, "page": 1, "text": "ABC 제안서 시험", "at": [20, 20] })));
 }
 
+/// `doc_create` from text lays it out on pages of `width` × `height`, as `blank` makes them;
+/// without them on US Letter, as before.
+#[test]
+fn creating_from_text_takes_the_page_size() {
+    fn sizes(a: &mut Automation, doc: u64) -> Vec<(f64, f64)> {
+        let info = ok(a, "doc_info", json!({ "doc": doc }));
+        info["pages"].as_array().unwrap().iter().map(|p| (p["width"].as_f64().unwrap(), p["height"].as_f64().unwrap())).collect()
+    }
+    let dir = workdir("create-text-size");
+    // Between 1-inch margins an A4 page (595 × 842 pt) holds 50 of these lines, US Letter 47.
+    let text = (1..=100).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
+    std::fs::write(dir.join("notes.txt"), &text).unwrap();
+    let mut a = auto(&dir);
+    for source in [json!({ "from": "text", "text": text }), json!({ "from": "text", "path": "notes.txt" })] {
+        let mut sized = source.clone();
+        (sized["width"], sized["height"]) = (json!(595), json!(842));
+        let a4 = ok(&mut a, "doc_create", sized)["doc"].as_u64().unwrap();
+        assert_eq!(sizes(&mut a, a4), [(595.0, 842.0); 2], "{source}");
+        let pages = page_text(&mut a, a4);
+        assert!(pages[0].starts_with("Line 1\n") && pages[0].ends_with("\nLine 50") && pages[1].starts_with("Line 51\n"), "{pages:?}");
+
+        let letter = ok(&mut a, "doc_create", source.clone())["doc"].as_u64().unwrap();
+        assert_eq!(sizes(&mut a, letter), [(612.0, 792.0); 3], "{source}");
+        let pages = page_text(&mut a, letter);
+        assert!(pages[0].ends_with("\nLine 47") && pages[1].starts_with("Line 48\n"), "{pages:?}");
+    }
+    // A side left out is US Letter's, for text as for blank.
+    for args in [json!({ "from": "blank", "width": 595 }), json!({ "from": "text", "text": "Narrow", "width": 595 })] {
+        let doc = ok(&mut a, "doc_create", args.clone())["doc"].as_u64().unwrap();
+        assert_eq!(sizes(&mut a, doc), [(595.0, 792.0)], "{args}");
+    }
+    // A size blank refuses is refused for text too, before any document opens.
+    let open = a.session().docs().len();
+    for (width, height) in [(2.0, 842.0), (595.0, 14_401.0)] {
+        for mut args in [json!({ "from": "blank" }), json!({ "from": "text", "text": "Text" }), json!({ "from": "text", "path": "notes.txt" })] {
+            (args["width"], args["height"]) = (json!(width), json!(height));
+            let err = a.call("doc_create", &args).unwrap_err().to_string();
+            assert!(err.starts_with("invalid page size"), "{args}: {err}");
+        }
+    }
+    assert_eq!(a.session().docs().len(), open);
+}
+
 #[test]
 fn creating_from_multiple_files_through_tools() {
     let dir = workdir("create-multiple");

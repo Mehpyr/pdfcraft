@@ -58,7 +58,8 @@ feature means adding a variant and handling it in `apply`, which is what keeps u
 flag, autosave and the automation tools consistent for free.
 
 `Session` also owns the operations that produce a *new* document rather than editing one:
-`create_blank`, `create_from_images`, `create_from_text`, `combine`, `extract`, `split`,
+`create_blank`, `create_from_images`, `create_from_text` (US Letter; `create_from_text_with_page_size`
+for another size), `combine`, `extract`, `split`,
 `split_by_size`, `reduced_bytes`, `optimized_bytes`, `print_pdf`, `export_data`, and the signing
 family (`sign`, `sign_with_timestamp`, `timestamp_document`, `embed_ltv`).
 

@@ -1433,10 +1433,12 @@ impl Automation {
     }
 
     fn doc_create(&mut self, a: &Args) -> Result<Value> {
+        // `blank` and `text` pages: each side not given is US Letter's.
+        let page_size = || -> Result<(f64, f64)> { Ok((a.opt_num("width")?.unwrap_or(612.0), a.opt_num("height")?.unwrap_or(792.0))) };
         let (name, bytes) = match a.str("from")? {
             "blank" => {
                 let n = a.opt_int("pages")?.unwrap_or(1).clamp(1, 10_000) as usize;
-                let (w, h) = (a.opt_num("width")?.unwrap_or(612.0), a.opt_num("height")?.unwrap_or(792.0));
+                let (w, h) = page_size()?;
                 ("Untitled.pdf".to_string(), self.session.create_blank(w, h, n).map_err(failed)?)
             }
             "images" => {
@@ -1455,6 +1457,7 @@ impl Automation {
                 (name, self.session.create_from_images_with_resolution(&images, resolution).map_err(failed)?)
             }
             "text" => {
+                let (w, h) = page_size()?;
                 let (title, text) = match (a.opt_str("text")?, a.opt_str("path")?) {
                     (Some(t), _) => ("Text".to_string(), t.to_string()),
                     (None, Some(p)) => {
@@ -1465,8 +1468,9 @@ impl Automation {
                     (None, None) => return Err(ToolError::InvalidArgs("text needs `text` or `path`".into())),
                 };
                 // The page font is Helvetica/WinAnsi: text it would turn into `?` is refused (with
-                // its line) by `pdfcraft_create::from_text`, as for every other caller.
-                let bytes = self.session.create_from_text(&title, &text).map_err(|e| match e {
+                // its line) by `pdfcraft_create::from_text`, as for every other caller, and so is a
+                // page size `blank` refuses.
+                let bytes = self.session.create_from_text_with_page_size(&title, &text, w, h).map_err(|e| match e {
                     pdfcraft_engine::EditError::Create(pdfcraft_engine::CreateError::Invalid(m)) => ToolError::InvalidArgs(m),
                     e => failed(e),
                 })?;

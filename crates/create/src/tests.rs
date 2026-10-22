@@ -124,6 +124,28 @@ fn text_is_wrapped_and_paginated() {
     assert!(content(p.last().unwrap()).contains("(After a form feed) Tj"), "a form feed starts a page");
 }
 
+/// Text pages take the size they are given, laid out for it, and only a size `blank` accepts.
+#[test]
+fn text_is_laid_out_on_the_page_size_given() {
+    let text = (1..=100).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
+    // Between 1-inch margins A4 (595 × 842 pt) holds 50 lines of 13.75 pt, US Letter 47.
+    for (page, per_page) in [((595.0, 842.0), 50), (LETTER, 47)] {
+        let doc = reopen(&from_text("notes", &text, page, 11.0).unwrap());
+        let p = pages(&doc);
+        assert_eq!(p.len(), 100usize.div_ceil(per_page), "{page:?}");
+        assert!(p.iter().all(|d| media(d) == [0.0, 0.0, page.0, page.1]), "{page:?}");
+        let Object::Stream(s) = &*doc.resolve(p[0].get(b"Contents").unwrap()) else { panic!() };
+        let first = String::from_utf8_lossy(&s.decoded().unwrap()).into_owned();
+        assert!(first.contains(&format!("(Line {per_page}) Tj")) && !first.contains(&format!("(Line {}) Tj", per_page + 1)), "{first}");
+    }
+    for page in [(2.0, 842.0), (595.0, 14_401.0), (-595.0, 842.0), (f64::NAN, 842.0), (595.0, f64::INFINITY)] {
+        let refused = CreateError::Invalid("invalid page size: each side must be 3 to 14400 points".into());
+        assert_eq!(from_text("notes", "Text", page, 11.0).unwrap_err(), refused, "{page:?}");
+        assert_eq!(from_text_escaped("report", "Text", page, 11.0).unwrap_err(), refused, "{page:?}");
+        assert!(blank(page.0, page.1, 1).is_err(), "{page:?}");
+    }
+}
+
 #[test]
 fn text_keeps_leading_spaces_and_tabs() {
     let doc = reopen(&from_text("t", "    indented\n\ttabbed\nplain", LETTER, 11.0).unwrap());
