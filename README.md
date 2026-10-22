@@ -291,9 +291,12 @@ Every engine feature is reachable without the GUI, through one table of JSON-Sch
   pdfcraft-cli run --script review.json                     # e.g. comment_add {"type": "highlight", "find": "total due"}
   pdfcraft-cli run --script steps.json --root ./work        # several steps in one session
   pdfcraft-cli run --script steps.json --report             # one JSON document: per step its number, tool, status, result or error
+  pdfcraft-cli run --script - < steps.json                  # the script from stdin
   ```
 
   With `--root`, every file the script's steps read or write stays in that directory, including the PNG a step saves with `"out"` (the script itself is read from wherever you name it).
+
+  A script is UTF-8 JSON. A leading byte order mark is skipped, so a file from Windows PowerShell 5.1's `Set-Content -Encoding utf8` works as it is; its default `>` and `Out-File` write UTF-16, which is refused. Windows PowerShell 5.1 also pipes text to programs as ASCII, turning other characters into `?`: set `$OutputEncoding = [Text.Encoding]::UTF8` before piping a script into `--script -`.
 
 - **An MCP server**, for AI agents such as Claude. **It is opt-in:** PdfCraft never starts it on its own, and it opens no network port. It runs only while an agent launches `pdfcraft-cli mcp`, talks over stdin/stdout, and stops when the agent disconnects. To enable it, add it to your agent's MCP configuration:
 

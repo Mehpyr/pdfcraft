@@ -6,7 +6,9 @@
 //! JSON when they can (`pages=[1,3]`, `degrees=90`) and are strings otherwise. A script runs its
 //! steps in one session, so `doc_open` returns id 1, the next document id 2, and so on. A step's
 //! `"out"` (like `--out`) saves its image there. With `--root DIR`, every path a tool or step
-//! names, `"out"` included, must be inside DIR, and relative paths resolve inside it.
+//! names, `"out"` included, must be inside DIR, and relative paths resolve inside it. A script is
+//! UTF-8 JSON, read from a file or, with `--script -`, from stdin; a leading byte order mark is
+//! skipped.
 //!
 //! The MCP server never starts on its own: it runs only when this command is launched (normally
 //! by an agent configured to use it), talks only over stdio, and exits when stdin closes.
@@ -75,6 +77,7 @@ pdfcraft-cli tools                                       automation tools and th
 pdfcraft-cli run    <tool> [key=value …] [--root DIR] [--out image.png]
 pdfcraft-cli run    --script steps.json [--root DIR] [--report]
                       [{\"tool\": \"doc_open\", \"args\": {…}}, …]; --report prints one JSON document for the run
+                      --script - reads the script from stdin; UTF-8, a leading byte order mark is skipped
 ",
     mcp_usage!(),
     "\
@@ -962,6 +965,38 @@ fn run_script_report(auto: &mut pdfcraft_automation::Automation, steps: &[serde_
     failure.map_or(Ok(()), |message| Err(CliError::Message(message)))
 }
 
+/// Most a script may hold. A script names the files it works on rather than holding them, so a
+/// real one is a few kilobytes; the cap keeps a wrong file or an endless pipe from filling memory.
+const SCRIPT_MAX: u64 = 16 * 1024 * 1024;
+
+/// The steps of `run --script FILE`, or of standard input when FILE is `-`.
+fn read_script(script: &str) -> Result<Vec<serde_json::Value>, String> {
+    if script == "-" {
+        return parse_script("stdin", std::io::stdin().lock());
+    }
+    let file = std::fs::File::open(script).map_err(|e| format!("{script}: {e}"))?;
+    parse_script(script, file)
+}
+
+/// Read a script of at most [`SCRIPT_MAX`] bytes and parse it, naming it `name` in errors. Scripts
+/// are UTF-8 JSON. One leading byte order mark is skipped: Windows PowerShell 5.1 writes one
+/// (`Set-Content -Encoding utf8`, and on a pipe once `$OutputEncoding` is UTF-8). Anything that is
+/// not UTF-8, such as the UTF-16 its `>` and `Out-File` write, is refused with how to save it.
+fn parse_script(name: &str, source: impl std::io::Read) -> Result<Vec<serde_json::Value>, String> {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    source.take(SCRIPT_MAX.saturating_add(1)).read_to_end(&mut bytes).map_err(|e| format!("{name}: {e}"))?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > SCRIPT_MAX {
+        return Err(format!("{name}: too large for a script (over {} MiB)", SCRIPT_MAX / (1024 * 1024)));
+    }
+    let text = std::str::from_utf8(bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes)).map_err(|e| {
+        let utf16 = bytes.starts_with(b"\xFF\xFE") || bytes.starts_with(b"\xFE\xFF");
+        let found = if utf16 { "is UTF-16".to_string() } else { format!("is not UTF-8 ({e})") };
+        format!("{name}: {found}; save the script as UTF-8 (in Windows PowerShell 5.1: Set-Content -Encoding utf8)")
+    })?;
+    serde_json::from_str(text).map_err(|e| format!("{name}: {e}"))
+}
+
 fn run(args: &[String]) -> Result<(), CliError> {
     validate_options("run", args, RUN_OPTIONS)?;
     let report = args.iter().any(|a| a == "--report");
@@ -970,8 +1005,7 @@ fn run(args: &[String]) -> Result<(), CliError> {
     }
     let mut auto = automation(args)?;
     if let Some(script) = flag(args, "--script") {
-        let text = std::fs::read_to_string(script).map_err(|e| format!("{script}: {e}"))?;
-        let steps: Vec<serde_json::Value> = serde_json::from_str(&text).map_err(|e| format!("{script}: {e}"))?;
+        let steps = read_script(script)?;
         if report {
             return run_script_report(&mut auto, &steps);
         }
@@ -1150,7 +1184,20 @@ fn current_uid() -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::control_file_problem;
+    use super::{SCRIPT_MAX, control_file_problem, parse_script};
+
+    #[test]
+    fn a_script_is_read_up_to_its_cap() {
+        use std::io::Read as _;
+        // At the cap it is read in full: blanks are no JSON value, so the parser is what refuses it.
+        let at_cap = parse_script("steps.json", std::io::repeat(b' ').take(SCRIPT_MAX)).unwrap_err();
+        assert!(at_cap.starts_with("steps.json: EOF while parsing"), "{at_cap}");
+        // One byte more is refused before parsing, and so is a stream that never ends.
+        let over = parse_script("steps.json", std::io::repeat(b' ').take(SCRIPT_MAX + 1)).unwrap_err();
+        assert_eq!(over, "steps.json: too large for a script (over 16 MiB)");
+        let endless = parse_script("stdin", std::io::repeat(b' ')).unwrap_err();
+        assert_eq!(endless, "stdin: too large for a script (over 16 MiB)");
+    }
 
     #[test]
     fn a_control_file_must_be_yours_and_private() {
